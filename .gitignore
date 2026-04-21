@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/
+
+# runtime data
+data/books/*
+!data/books/.gitkeep
+qdrant_storage/
+ollama_models/
+tei_data/
+
+# logs
+*.log

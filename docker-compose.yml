@@ -1,0 +1,85 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rinri-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  tei:
+    # Choose the image tag that matches your GPU architecture:
+    #   ghcr.io/huggingface/text-embeddings-inference:1.5          # Ampere (sm80: A100)
+    #   ghcr.io/huggingface/text-embeddings-inference:86-1.5       # Ampere (sm86: A10, RTX 30xx)
+    #   ghcr.io/huggingface/text-embeddings-inference:89-1.5       # Ada    (sm89: L4, RTX 40xx)
+    #   ghcr.io/huggingface/text-embeddings-inference:hopper-1.5   # Hopper (sm90: H100)
+    image: ${TEI_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:89-1.5}
+    container_name: rinri-tei
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - tei_data:/data
+    command: --model-id ${EMBEDDING_MODEL:-BAAI/bge-m3} --max-client-batch-size 64
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: rinri-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  api:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: rinri-api
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/srv/data
+    depends_on:
+      - ollama
+      - tei
+      - qdrant
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    container_name: rinri-ui
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - API_URL=http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+
+volumes:
+  ollama_models:
+  tei_data:
+  qdrant_storage:
