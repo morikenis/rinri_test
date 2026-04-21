@@ -19,12 +19,18 @@ services:
               capabilities: [gpu]
 
   tei:
-    # Choose the image tag that matches your GPU architecture:
+    # Default target: V100 (Volta, sm70). TEI does not ship a Volta GPU build,
+    # so we use the CPU image and let the V100 serve the LLM exclusively.
+    # One-time ingest of ~50k chunks takes roughly 15-30 minutes on CPU.
+    #
+    # For newer GPUs, switch TEI_IMAGE to a matching tag and uncomment the
+    # `deploy.resources.reservations` block below:
+    #   ghcr.io/huggingface/text-embeddings-inference:turing-1.5   # Turing (sm75: T4, RTX 20xx)
     #   ghcr.io/huggingface/text-embeddings-inference:1.5          # Ampere (sm80: A100)
     #   ghcr.io/huggingface/text-embeddings-inference:86-1.5       # Ampere (sm86: A10, RTX 30xx)
     #   ghcr.io/huggingface/text-embeddings-inference:89-1.5       # Ada    (sm89: L4, RTX 40xx)
     #   ghcr.io/huggingface/text-embeddings-inference:hopper-1.5   # Hopper (sm90: H100)
-    image: ${TEI_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:89-1.5}
+    image: ${TEI_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.5}
     container_name: rinri-tei
     restart: unless-stopped
     ports:
@@ -32,13 +38,14 @@ services:
     volumes:
       - tei_data:/data
     command: --model-id ${EMBEDDING_MODEL:-BAAI/bge-m3} --max-client-batch-size 64
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # Uncomment to run TEI on GPU (not applicable to CPU image):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
   qdrant:
     image: qdrant/qdrant:v1.12.4
