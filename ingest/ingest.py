@@ -27,7 +27,7 @@ EMBED_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 CHUNK_SIZE = int(os.environ.get("RAG_CHUNK_SIZE", "800"))
 CHUNK_OVERLAP = int(os.environ.get("RAG_CHUNK_OVERLAP", "120"))
 
-EMBED_BATCH = 32
+EMBED_BATCH = 16
 
 
 def ensure_collection(client: QdrantClient, recreate: bool) -> None:
@@ -43,16 +43,23 @@ def ensure_collection(client: QdrantClient, recreate: bool) -> None:
 
 
 def embed_batch(texts: List[str]) -> List[List[float]]:
-    # TEI OpenAI-compatible endpoint
-    resp = httpx.post(
-        f"{TEI_URL}/embed",
-        json={"inputs": texts, "normalize": True, "truncate": True},
-        timeout=120.0,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    # TEI /embed returns a list[list[float]]
-    return data
+    # TEI OpenAI-compatible endpoint. Retry a few times on transient timeouts
+    # since CPU inference for a full batch can occasionally stall.
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = httpx.post(
+                f"{TEI_URL}/embed",
+                json={"inputs": texts, "normalize": True, "truncate": True},
+                timeout=httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=10.0),
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            last_err = e
+            print(f"  [retry {attempt + 1}/3] embed failed: {type(e).__name__}")
+    assert last_err is not None
+    raise last_err
 
 
 def iter_chunks(docs: Iterable[Document]):
