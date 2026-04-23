@@ -15,6 +15,23 @@ st.set_page_config(page_title="事務資料 情報抽出", page_icon="📄", lay
 st.title("事務資料 情報抽出")
 st.caption("紙をスキャンした PDF / 画像から、項目を構造化して取り出します。")
 
+# --- Sidebar: engine choice --------------------------------------------------
+with st.sidebar:
+    st.markdown("### OCR エンジン")
+    engine_label = st.radio(
+        "使用するエンジン",
+        options=["ndl", "tesseract"],
+        format_func=lambda k: {
+            "ndl": "NDLOCR-Lite(国立国会図書館・推奨)",
+            "tesseract": "Tesseract(軽量・汎用)",
+        }[k],
+        index=0,
+    )
+    st.caption(
+        "日本語(縦書き・古めの書体含む)は NDLOCR-Lite が精度良好。"
+        "Tesseract は起動が速いが印刷物中心。"
+    )
+
 # --- Step 1: upload ----------------------------------------------------------
 uploaded = st.file_uploader(
     "資料をアップロード(PDF / PNG / JPG)",
@@ -27,15 +44,20 @@ if not uploaded:
     st.stop()
 
 # --- Step 2: OCR -------------------------------------------------------------
+cache_key = (uploaded.name, engine_label)
 if (
     "ocr_text" not in st.session_state
-    or st.session_state.get("ocr_key") != uploaded.name
+    or st.session_state.get("ocr_key") != cache_key
 ):
-    with st.spinner("OCR 中..."):
+    with st.spinner(f"OCR 中 ({engine_label})..."):
         data = uploaded.getvalue()
-        text = ocr_file(uploaded.name, data)
+        try:
+            text = ocr_file(uploaded.name, data, engine=engine_label)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"OCR に失敗しました: {e}")
+            st.stop()
     st.session_state.ocr_text = text
-    st.session_state.ocr_key = uploaded.name
+    st.session_state.ocr_key = cache_key
 
 ocr_text: str = st.session_state.ocr_text
 
@@ -125,7 +147,6 @@ if st.button("抽出する", type="primary"):
 
     st.success("抽出完了")
 
-    # Build a flat review table
     rows: list[dict] = []
     for k, v in result.items():
         if isinstance(v, list):
@@ -155,3 +176,10 @@ if st.button("抽出する", type="primary"):
         file_name=f"extracted_{uploaded.name}.json",
         mime="application/json",
     )
+
+# --- Attribution (CC BY 4.0 requires credit) ---------------------------------
+st.markdown("---")
+st.caption(
+    "OCR には [NDLOCR-Lite](https://github.com/ndl-lab/ndlocr-lite) "
+    "(国立国会図書館, CC BY 4.0) および Tesseract OCR を利用しています。"
+)
