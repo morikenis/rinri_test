@@ -86,6 +86,20 @@ services:
     depends_on:
       - api
 
+  office:
+    # Independent service for scanned-paper information extraction.
+    # Shares only the Ollama LLM; does not touch api/ui/qdrant/tei.
+    build:
+      context: .
+      dockerfile: office/Dockerfile
+    container_name: rinri-office
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8502:8501"
+    depends_on:
+      - ollama
+
 volumes:
   ollama_models:
   tei_data:
