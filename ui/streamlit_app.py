@@ -62,9 +62,23 @@ if prompt:
         if sources:
             with sources_area.expander("参照した書籍箇所を表示", expanded=False):
                 for i, s in enumerate(sources, start=1):
+                    title = (s.get("title") or "").strip()
+                    chapter = (s.get("chapter_title") or "").strip()
+                    author = (s.get("author") or "").strip()
+                    if title and chapter:
+                        label = f"**{title}**  〈{chapter}〉"
+                    elif title:
+                        label = f"**{title}**"
+                    else:
+                        label = f"`{s['source']}`"
+                    if author:
+                        label += f"   著: {author}"
                     st.markdown(
-                        f"**[資料{i}]** `{s['source']}` / chunk {s['chunk_index']} / score {s['score']:.3f}"
+                        f"**[資料{i}]** {label}\n\n"
+                        f"<small>chunk {s['chunk_index']} / score {s['score']:.3f} / file: `{s['source']}`</small>",
+                        unsafe_allow_html=True,
                     )
                     st.write(s["text"])
+                    st.markdown("---")
 
     st.session_state.messages.append({"role": "assistant", "content": buffer})

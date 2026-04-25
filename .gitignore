@@ -12,6 +12,7 @@ venv/
 # runtime data
 data/books/*
 !data/books/.gitkeep
+data/cleaned/
 qdrant_storage/
 ollama_models/
 tei_data/

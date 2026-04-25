@@ -11,6 +11,7 @@ RUN pip install -r /srv/app/requirements.txt
 
 COPY app /srv/app
 COPY ingest /srv/ingest
+COPY preprocess /srv/preprocess
 
 EXPOSE 8000
 

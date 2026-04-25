@@ -32,14 +32,24 @@ SYSTEM_PROMPT = """\
 """
 
 
+def _format_source_label(payload: dict) -> str:
+    title = (payload.get("title") or "").strip()
+    chapter = (payload.get("chapter_title") or "").strip()
+    if title and chapter:
+        return f"{title} / {chapter}"
+    if title:
+        return title
+    return payload.get("source", "(不明)")
+
+
 def build_context(hits: List[qm.ScoredPoint]) -> str:
     blocks: list[str] = []
     for i, h in enumerate(hits, start=1):
         payload = h.payload or {}
-        source = payload.get("source", "(不明)")
+        label = _format_source_label(payload)
         idx = payload.get("chunk_index", 0)
         text = payload.get("text", "")
-        blocks.append(f"[資料{i}] 出典: {source} / chunk:{idx}\n{text}")
+        blocks.append(f"[資料{i}] 出典: {label} (chunk:{idx})\n{text}")
     return "\n\n".join(blocks)
 
 

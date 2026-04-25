@@ -32,6 +32,9 @@ async def answer_stream(
             "chunk_index": (h.payload or {}).get("chunk_index", 0),
             "score": float(h.score),
             "text": (h.payload or {}).get("text", ""),
+            "title": (h.payload or {}).get("title"),
+            "author": (h.payload or {}).get("author"),
+            "chapter_title": (h.payload or {}).get("chapter_title"),
         }
         for h in hits
     ]

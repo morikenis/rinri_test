@@ -1,7 +1,14 @@
 """Ingestion entry point.
 
 Usage (inside the api container, or any env with deps installed):
-    python -m ingest.ingest --books-dir data/books --recreate
+    python -m ingest.ingest --books-dir /srv/data/cleaned --recreate
+
+The loader recognises optional YAML frontmatter at the top of each .txt
+(emitted by `python -m preprocess.run`). When present, fields like title /
+author / chapter_title are stored as Qdrant payload and used to build a
+short prefix that is *prepended to chunks at embedding time only* — so the
+retrieval signal includes book/chapter context, while the stored chunk
+text remains the original prose for clean citation display.
 """
 from __future__ import annotations
 
@@ -10,7 +17,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 import httpx
 from qdrant_client import QdrantClient
@@ -43,8 +50,6 @@ def ensure_collection(client: QdrantClient, recreate: bool) -> None:
 
 
 def embed_batch(texts: List[str]) -> List[List[float]]:
-    # TEI OpenAI-compatible endpoint. Retry a few times on transient timeouts
-    # since CPU inference for a full batch can occasionally stall.
     last_err: Exception | None = None
     for attempt in range(3):
         try:
@@ -62,32 +67,52 @@ def embed_batch(texts: List[str]) -> List[List[float]]:
     raise last_err
 
 
+def _build_prefix(meta: dict) -> str:
+    title = (meta.get("title") or "").strip()
+    chapter = (meta.get("chapter_title") or "").strip()
+    if title and chapter:
+        return f"【{title} / {chapter}】\n"
+    if title:
+        return f"【{title}】\n"
+    return ""
+
+
 def iter_chunks(docs: Iterable[Document]):
     for doc in docs:
+        prefix = _build_prefix(doc.metadata)
         for ch in chunk_text(doc.text, CHUNK_SIZE, CHUNK_OVERLAP):
-            yield doc, ch
+            yield doc, ch, prefix
 
 
-def upsert(client: QdrantClient, doc_chunks, vectors) -> None:
+def upsert(
+    client: QdrantClient,
+    doc_chunks: List[Tuple[Document, Chunk, str]],
+    vectors,
+) -> None:
     points = []
-    for (doc, ch), vec in zip(doc_chunks, vectors):
+    for (doc, ch, _prefix), vec in zip(doc_chunks, vectors):
+        meta = doc.metadata or {}
+        payload = {
+            "source": doc.source,
+            "chunk_index": ch.index,
+            "text": ch.text,
+            "title": meta.get("title"),
+            "author": meta.get("author"),
+            "publisher": meta.get("publisher"),
+            "year": meta.get("year"),
+            "chapter_index": meta.get("chapter_index"),
+            "chapter_title": meta.get("chapter_title"),
+            "source_file": meta.get("source_file"),
+        }
         points.append(
-            qm.PointStruct(
-                id=str(uuid.uuid4()),
-                vector=vec,
-                payload={
-                    "source": doc.source,
-                    "chunk_index": ch.index,
-                    "text": ch.text,
-                },
-            )
+            qm.PointStruct(id=str(uuid.uuid4()), vector=vec, payload=payload)
         )
     client.upsert(collection_name=COLLECTION, points=points, wait=True)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--books-dir", default="data/books")
+    parser.add_argument("--books-dir", default="data/cleaned")
     parser.add_argument("--recreate", action="store_true", help="drop & recreate collection")
     args = parser.parse_args()
 
@@ -105,8 +130,8 @@ def main() -> int:
         return 1
     print(f"loaded {len(docs)} document(s)")
 
-    batch_doc_chunks = []
-    batch_texts: List[str] = []
+    batch_doc_chunks: List[Tuple[Document, Chunk, str]] = []
+    batch_texts: List[str] = []  # the texts actually sent to the embedder (with prefix)
     total = 0
 
     def flush():
@@ -120,9 +145,9 @@ def main() -> int:
         batch_doc_chunks = []
         batch_texts = []
 
-    for doc, ch in iter_chunks(docs):
-        batch_doc_chunks.append((doc, ch))
-        batch_texts.append(ch.text)
+    for doc, ch, prefix in iter_chunks(docs):
+        batch_doc_chunks.append((doc, ch, prefix))
+        batch_texts.append(prefix + ch.text)
         if len(batch_texts) >= EMBED_BATCH:
             flush()
     flush()

@@ -80,11 +80,36 @@ docker compose exec ollama ollama pull gemma4:latest
 scp books/*.txt user@<vps-ip>:~/rinri_test/data/books/
 ```
 
-### 6. ベクトル化(初回 + 書籍追加時)
+ファイル名は任意ですが、**`書名_著者.txt`** の形式にしておくと、後段の
+preprocess が LLM を使わずにファイル名からメタデータを取り出せます。
+形式が違っても LLM が冒頭から書誌情報を抽出するので、必須ではありません。
+
+### 6. 前処理(整形 + 章分割 + メタデータ付与)
 
 ```bash
-docker compose exec api python -m ingest.ingest --books-dir /srv/data/books --recreate
+docker compose exec api python -m preprocess.run \
+  --input /srv/data/books \
+  --output /srv/data/cleaned
 ```
+
+`data/books/` の生 .txt を順に処理し、`data/cleaned/<書名>/<NN>_<章>.txt`
+に YAML フロントマター付きで分割保存します。LLM 呼び出しはメタデータ抽出
+1 回 + 章境界がうまく検出できなかった本のみ追加 1 回まで。本文は書き換えません。
+
+オプション:
+- `--force` … 既に出力済みの本も再処理
+- `--no-llm-fallback` … 章境界検出を正規表現のみで行う(LLM を使わない)
+
+### 7. ベクトル化(初回 + 書籍追加時)
+
+```bash
+docker compose exec api python -m ingest.ingest \
+  --books-dir /srv/data/cleaned --recreate
+```
+
+cleaned 配下のフロントマターを読み、書名・章タイトル等を Qdrant の
+payload として格納します。検索では各チャンクの先頭に「書名 / 章」を
+付けて埋め込み、書籍特定が効きやすくなります。
 
 - 400KB × 100 ファイル想定で **CPU TEI だと 15〜30 分**
 - 完了後、Qdrant に約 5 万チャンクが格納されます
